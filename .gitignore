@@ -1,0 +1,11 @@
+# Personal data — never commit these
+.env
+.context.md
+decisions.md
+.sessions.json
+
+# System
+.DS_Store
+__pycache__/
+*.pyc
+*.log
