@@ -25,7 +25,7 @@ Briefs you: where you left off, open decisions, blocker, next action
         ↓
         ... you work ...
         ↓
-You say "done"
+You say "wrap session"
         ↓
 Claude generates session summary from conversation
         ↓

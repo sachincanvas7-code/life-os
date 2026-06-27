@@ -32,7 +32,7 @@ NEXT ACTION
 ─────────────────────────────────────
 ```
 
-### When the user says "done", "wrapping up", or "ending session"
+### When the user says "wrap session"
 1. Generate a session summary from what was discussed and built in this conversation
 2. Show the user this draft:
 
