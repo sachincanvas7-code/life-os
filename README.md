@@ -33,7 +33,7 @@ Shows draft → you approve or edit
         ↓
 Writes back to .context.md + decisions.md + .sessions.json
         ↓
-Every 3 days → cron runs life_os_report.py → HTML email to your inbox
+Daily → launchd runs life_os_report.py → sends only every 3 days → HTML email to your inbox
 ```
 
 ---
@@ -73,17 +73,23 @@ Edit `.env`:
 RESEND_API_KEY=re_your_key_here
 TO_EMAIL=your@email.com
 WORK_DIR=/path/to/your/projects
+REPORT_EVERY_DAYS=3
 ```
 
-Edit `life_os_report.py` — update the `PROJECTS` list to match your actual project folders:
+Then create your project list. Copy the example and edit it (this file is gitignored, so your real project names stay private):
 
-```python
-PROJECTS = [
-    {"name": "Project One",   "path": "folder-one"},
-    {"name": "Project Two",   "path": "folder-two"},
-    # add as many as you have
+```bash
+cp projects.example.json projects.json
+```
+
+```json
+[
+  {"name": "Project One", "path": "folder-one"},
+  {"name": "Project Two", "path": "folder-two"}
 ]
 ```
+
+If `projects.json` is missing, the script falls back to a generic built-in list.
 
 ### 5. Set up the global Claude instruction
 
@@ -119,27 +125,58 @@ For each project folder, create a `.context.md` file:
 
 This seeds the context. After your first session using the switcher, Claude will keep it updated automatically.
 
-### 7. Schedule the email report
+### 7. Schedule the email report (macOS — launchd)
 
-Add a cron job to run every 3 days at 8am:
+launchd is preferred over cron on macOS: it runs in your user session (no Full
+Disk Access hassle) and **catches up missed runs** if your Mac was asleep at the
+scheduled time — so you never silently miss a digest.
 
-```bash
-# Open cron editor
-crontab -e
+Create `~/Library/LaunchAgents/com.you.lifeos.plist`. It fires **daily at 20:00**;
+the script's built-in gate only actually sends every `REPORT_EVERY_DAYS` days:
 
-# Add this line (adjust path to match your setup):
-30 2 */3 * * /usr/bin/python3 "/path/to/life_os_report.py" >> /tmp/life_os_report.log 2>&1
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.you.lifeos</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/path/to/life-os/life_os_report.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/path/to/life-os</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>20</integer>
+        <key>Minute</key><integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/path/to/life-os/report.log</string>
+    <key>StandardErrorPath</key>
+    <string>/path/to/life-os/report.log</string>
+</dict>
+</plist>
 ```
 
-Note: `30 2` = 2:30am UTC = 8am IST. Adjust for your timezone.
+Load it:
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.you.lifeos.plist
+launchctl list | grep lifeos   # confirm it's registered
+```
 
 ### 8. Test it
 
 ```bash
-python3 life_os_report.py
+python3 life_os_report.py --force
 ```
 
-You should see `Sent to your@email.com` and receive the email within seconds.
+`--force` bypasses the 3-day gate. You should see `Sent to your@email.com` and
+receive the email within seconds. (Without `--force`, the script skips if it sent
+within the last `REPORT_EVERY_DAYS` days.)
 
 ---
 
@@ -147,8 +184,10 @@ You should see `Sent to your@email.com` and receive the email within seconds.
 
 ```
 your-projects/
-├── life_os_report.py        ← report script (run via cron)
+├── life_os_report.py        ← report script (run via launchd)
 ├── .env                     ← API key + config (gitignored)
+├── projects.json            ← your project list (gitignored)
+├── projects.example.json    ← template project list
 │
 ├── project-one/
 │   ├── CLAUDE.md            ← project context for Claude
@@ -172,9 +211,14 @@ Delivered every 3 days. Contains five sections:
 |---------|--------------|
 | Goal Health | All projects with last-active date and momentum status |
 | Active Blockers | Things currently preventing progress, by project |
-| Recent Decisions | Permanent log of decisions made across projects |
-| Time This Period | Hours logged per project in the last 3 days |
-| Needs Attention | Projects untouched for 14+ days |
+| Open Decisions | Pending choices waiting on you, pulled from each `.context.md` |
+| Time This Period | Hours logged per project in the reporting window |
+| Needs Attention | Projects untouched for 14+ days, plus any missing folders |
+
+**"Last Active" is measured from capture signals** — the latest date in
+`.sessions.json` or the `Last Updated:` line in `.context.md` — *not* raw file
+mtime (which Finder/Spotlight/backups can bump without any real work). File mtime
+is only a last-resort fallback when a project has neither.
 
 Momentum thresholds:
 
@@ -264,12 +308,20 @@ The report script reads these and shows hours per project for the period.
 
 ## Customising the Report Frequency
 
-Change `*/3` in the cron job to any interval:
+The LaunchAgent fires daily at 20:00; spacing is controlled by `REPORT_EVERY_DAYS`
+in `.env`:
+
+```env
+REPORT_EVERY_DAYS=1    # every day
+REPORT_EVERY_DAYS=3    # every 3 days (default)
+REPORT_EVERY_DAYS=7    # every week
+```
+
+To change the time of day, edit the `Hour`/`Minute` in the plist, then reload:
 
 ```bash
-30 2 */1 * *   # every day
-30 2 */3 * *   # every 3 days (default)
-30 2 */7 * *   # every week
+launchctl unload ~/Library/LaunchAgents/com.you.lifeos.plist
+launchctl load   ~/Library/LaunchAgents/com.you.lifeos.plist
 ```
 
 ---
@@ -285,6 +337,6 @@ Everything runs locally. No data leaves your machine except the email send via R
 - **Claude Code** — context switching via global `~/.claude/CLAUDE.md`
 - **Python 3** — report generation
 - **Resend API** — email delivery
-- **cron** — scheduling
+- **launchd** — scheduling (macOS)
 
 No database. No server. No dependencies beyond `requests`.

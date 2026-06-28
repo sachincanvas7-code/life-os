@@ -1,5 +1,7 @@
 # Personal data — never commit these
 .env
+projects.json
+.last_report
 .context.md
 decisions.md
 .sessions.json
